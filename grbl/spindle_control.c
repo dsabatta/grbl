@@ -42,7 +42,8 @@ void spindle_init()
         SPINDLE_DIRECTION_DDR |= (1<<SPINDLE_DIRECTION_BIT); // Configure as output pin.
       #endif
     #endif
-    pwm_gradient = SPINDLE_PWM_RANGE/(settings.rpm_max-settings.rpm_min);
+//    DEON - pwm_gradient = SPINDLE_PWM_RANGE/(settings.rpm_max-settings.rpm_min);
+    pwm_gradient = SPINDLE_PWM_RANGE/(settings.rpm_max);
   #else
     SPINDLE_ENABLE_DDR |= (1<<SPINDLE_ENABLE_BIT); // Configure as output pin.
     #ifndef ENABLE_DUAL_AXIS
@@ -98,7 +99,8 @@ uint8_t spindle_get_state()
 void spindle_stop()
 {
   #ifdef VARIABLE_SPINDLE
-    SPINDLE_TCCRA_REGISTER &= ~(1<<SPINDLE_COMB_BIT); // Disable PWM. Output voltage is zero.
+    // DEON -- Leave the PWM enabled, controlling the laser with D13.
+    // SPINDLE_TCCRA_REGISTER &= ~(1<<SPINDLE_COMB_BIT); // Disable PWM. Output voltage is zero.
     #ifdef USE_SPINDLE_DIR_AS_ENABLE_PIN
       #ifdef INVERT_SPINDLE_ENABLE_PIN
         SPINDLE_ENABLE_PORT |= (1<<SPINDLE_ENABLE_BIT);  // Set pin to high
@@ -121,11 +123,13 @@ void spindle_stop()
   // and stepper ISR. Keep routine small and efficient.
   void spindle_set_speed(uint8_t pwm_value)
   {
-    SPINDLE_OCR_REGISTER = pwm_value; // Set PWM output level.
     #ifdef SPINDLE_ENABLE_OFF_WITH_ZERO_SPEED
       if (pwm_value == SPINDLE_PWM_OFF_VALUE) {
         spindle_stop();
       } else {
+        // DEON - Moved this from the top of the function to here so that a S0 command
+        //         doesn't disable the PWM output.
+        SPINDLE_OCR_REGISTER = pwm_value; // Set PWM output level.
         SPINDLE_TCCRA_REGISTER |= (1<<SPINDLE_COMB_BIT); // Ensure PWM output is enabled.
         #ifdef INVERT_SPINDLE_ENABLE_PIN
           SPINDLE_ENABLE_PORT &= ~(1<<SPINDLE_ENABLE_BIT);
@@ -204,13 +208,15 @@ void spindle_stop()
           pwm_value = SPINDLE_PWM_OFF_VALUE;
         } else { // Set minimum PWM output
           sys.spindle_speed = settings.rpm_min;
-          pwm_value = SPINDLE_PWM_MIN_VALUE;
+          // DEON - pwm_value = SPINDLE_PWM_MIN_VALUE;
+          pwm_value = floor((settings.rpm_min)*pwm_gradient) + SPINDLE_PWM_MIN_VALUE;
         }
       } else { 
         // Compute intermediate PWM value with linear spindle speed model.
         // NOTE: A nonlinear model could be installed here, if required, but keep it VERY light-weight.
         sys.spindle_speed = rpm;
-        pwm_value = floor((rpm-settings.rpm_min)*pwm_gradient) + SPINDLE_PWM_MIN_VALUE;
+        // DEON - pwm_value = floor((rpm-settings.rpm_min)*pwm_gradient) + SPINDLE_PWM_MIN_VALUE;
+        pwm_value = floor((rpm)*pwm_gradient) + SPINDLE_PWM_MIN_VALUE;
       }
       return(pwm_value);
     }
